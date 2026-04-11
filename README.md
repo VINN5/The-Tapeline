@@ -2,8 +2,6 @@
 
 **A full-stack data connector platform** for connecting to multiple databases, extracting data in configurable batches, editing records interactively, and storing results securely.
 
----
-
 ## Tech Stack
 
 | Layer | Technology |
@@ -19,8 +17,6 @@
 | Connectors | psycopg2, PyMySQL, pymongo, clickhouse-connect |
 | Containerization | Docker + Docker Compose |
 
----
-
 ## Features
 
 - Connect to **PostgreSQL, MySQL, MongoDB, and ClickHouse** databases
@@ -31,8 +27,6 @@
 - **Role-based access control** — admins have full access, users see only their own data and files shared with them
 - **Preset connection system** for one-click connection to local Docker databases and cloud services (Neon PostgreSQL, MongoDB Atlas)
 - JWT authentication with **automatic token refresh** and **logout blacklisting**
-
----
 
 ## Getting Started
 
@@ -65,8 +59,6 @@
 4. **Access the app**
    - Frontend: [http://localhost:3000](http://localhost:3000)
    - Backend API: [http://localhost:8000/api/](http://localhost:8000/api/)
-
----
 
 ## API Reference
 
@@ -106,8 +98,6 @@
 | POST | `/api/files/{id}/share/` | Share file with another user |
 | DELETE | `/api/files/{id}/` | Delete a file |
 
----
-
 ## Project Structure
 
 ```
@@ -132,16 +122,12 @@ Tapeline/
 └── docker-compose.yml
 ```
 
----
-
 ## Running Tests
 
 ```bash
 # Backend unit tests
 docker compose exec backend python manage.py test
 ```
-
----
 
 ## License
 
