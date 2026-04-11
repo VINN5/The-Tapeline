@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "db_type": "mongodb",
+    "database_name": "test_mongo",
+    "table_name": "customers",
+    "extracted_at": "2026-04-09T19:56:50.521060+00:00",
+    "submitted_at": "2026-04-09T19:57:14.175285",
+    "record_count": 1
+  },
+  "data": [
+    {
+      "city": "Nairobi",
+      "name": "Joe",
+      "email": "alice@example.com"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "metadata": {
+    "db_type": "clickhouse",
+    "database_name": "default",
+    "table_name": "sales",
+    "extracted_at": "2026-04-10T11:52:59.610284+00:00",
+    "submitted_at": "2026-04-10T11:57:12.116332",
+    "record_count": 1
+  },
+  "data": [
+    {
+      "id": 3,
+      "amount": 49.99,
+      "product": "Doorhickey"
+    }
+  ]
+}

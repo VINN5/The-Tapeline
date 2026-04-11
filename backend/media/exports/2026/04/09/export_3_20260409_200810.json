@@ -1,0 +1,26 @@
+{
+  "metadata": {
+    "db_type": "postgresql",
+    "database_name": "tapeline",
+    "table_name": "accounts_user",
+    "extracted_at": "2026-04-09T20:07:52.794720+00:00",
+    "submitted_at": "2026-04-09T20:08:10.685507",
+    "record_count": 1
+  },
+  "data": [
+    {
+      "id": 1,
+      "role": "user",
+      "email": "vinnwambui2@gmail.com",
+      "is_staff": true,
+      "password": "pbkdf2_sha256$1200000$3XqLcyTWpUvzOPgNkRDUmD$fh+7OR33kEpcjg5jdts6w20gEMpNaghbo4749awnQ7w=",
+      "username": "Vinn",
+      "is_active": true,
+      "last_name": "",
+      "first_name": "",
+      "last_login": null,
+      "date_joined": "2026-04-02 18:55:34.848283+00:00",
+      "is_superuser": true
+    }
+  ]
+}

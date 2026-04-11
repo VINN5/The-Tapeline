@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "db_type": "postgresql",
+    "database_name": "testdb",
+    "table_name": "users",
+    "extracted_at": "2026-04-08T04:42:59.280685+00:00",
+    "submitted_at": "2026-04-08T04:42:59.289125",
+    "record_count": 1
+  },
+  "data": [
+    {
+      "id": 1,
+      "name": "Updated"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+db.sqlite3
+**/migrations/__pycache__/
+node_modules/
+.next/
+out/
+*.log
+.docker/
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+desktop.ini
+.env

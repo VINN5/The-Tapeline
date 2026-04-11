@@ -1,0 +1,10 @@
+django>=5.1
+djangorestframework
+psycopg2-binary
+mysqlclient
+pymongo
+clickhouse-connect
+django-cors-headers
+djangorestframework-simplejwt
+pymysql
+cryptography
