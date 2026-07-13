@@ -8,3 +8,4 @@ django-cors-headers
 djangorestframework-simplejwt
 pymysql
 cryptography
+drf-spectacular

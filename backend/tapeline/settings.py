@@ -20,6 +20,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
+    'drf_spectacular',        # ADD THIS
     'connectors',
     'data_manager',
     'accounts',
@@ -77,6 +78,24 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 100,
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',  # ADD THIS
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'TapeLine API',
+    'DESCRIPTION': (
+        'A full-stack data connector platform for extracting, editing, '
+        'and storing data from PostgreSQL, MySQL, MongoDB, and ClickHouse.'
+    ),
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
+    'TAGS': [
+        {'name': 'Auth', 'description': 'Registration, login, token refresh, logout'},
+        {'name': 'Connections', 'description': 'Manage database connections and presets'},
+        {'name': 'Jobs', 'description': 'Extraction jobs and record management'},
+        {'name': 'Files', 'description': 'File listing, download, and sharing'},
+    ],
 }
 
 SIMPLE_JWT = {
