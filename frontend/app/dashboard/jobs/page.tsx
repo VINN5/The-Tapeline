@@ -13,7 +13,10 @@ import {
   RefreshCw,
   Table,
   Edit3,
-  X
+  X,
+  Plus,
+  Filter,
+  ArrowUpDown,
 } from 'lucide-react'
 import api from '@/lib/api'
 import { formatDate, getStatusColor } from '@/lib/utils'
@@ -41,12 +44,21 @@ interface DataRecord {
   is_edited: boolean
 }
 
+interface FilterRow {
+  id: number
+  column: string
+  operator: string
+  value: string
+}
+
 const DB_ICONS: Record<string, string> = {
   postgresql: '🐘',
   mysql: '🐬',
   mongodb: '🍃',
   clickhouse: '⚡',
 }
+
+const OPERATORS = ['=', '!=', '>', '<', '>=', '<=', 'LIKE']
 
 export default function JobsPage() {
   const [connections, setConnections] = useState<Connection[]>([])
@@ -61,7 +73,13 @@ export default function JobsPage() {
   const [loadingTables, setLoadingTables] = useState(false)
   const [selectedTable, setSelectedTable] = useState('')
   const [batchSize, setBatchSize] = useState(100)
-  const [fileFormat, setFileFormat] = useState<'json' | 'csv'>('json')
+  const [fileFormat, setFileFormat] = useState<'json' | 'csv' | 'xlsx'>('json')
+
+  // Query builder state
+  const [filters, setFilters] = useState<FilterRow[]>([])
+  const [orderBy, setOrderBy] = useState('')
+  const [orderDir, setOrderDir] = useState<'asc' | 'desc'>('asc')
+  const [showQueryBuilder, setShowQueryBuilder] = useState(false)
 
   // Active job and its records
   const [activeJob, setActiveJob] = useState<Job | null>(null)
@@ -84,7 +102,6 @@ export default function JobsPage() {
     fetchData()
   }, [])
 
-  // Auto-scroll to grid when activeJob is set
   useEffect(() => {
     if (activeJob && gridRef.current) {
       setTimeout(() => {
@@ -123,6 +140,24 @@ export default function JobsPage() {
     }
   }
 
+  // Filter helpers
+  const addFilter = () => {
+    setFilters((prev) => [
+      ...prev,
+      { id: Date.now(), column: '', operator: '=', value: '' },
+    ])
+  }
+
+  const updateFilter = (id: number, field: keyof FilterRow, value: string) => {
+    setFilters((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, [field]: value } : f))
+    )
+  }
+
+  const removeFilter = (id: number) => {
+    setFilters((prev) => prev.filter((f) => f.id !== id))
+  }
+
   const handleCreateJob = async () => {
     if (!selectedConnection || !selectedTable) {
       showMessage('error', 'Please select a connection and table.')
@@ -130,11 +165,24 @@ export default function JobsPage() {
     }
     setCreating(true)
     try {
-      const res = await api.post('/jobs/', {
+      // Build clean filters — skip any incomplete rows
+      const cleanFilters = filters
+        .filter((f) => f.column.trim() && f.value.trim())
+        .map(({ column, operator, value }) => ({ column, operator, value }))
+
+      const payload: Record<string, any> = {
         connection: selectedConnection,
         table_name: selectedTable,
         batch_size: batchSize,
-      })
+      }
+
+      if (cleanFilters.length > 0) payload.filters = cleanFilters
+      if (orderBy.trim()) {
+        payload.order_by = orderBy.trim()
+        payload.order_dir = orderDir
+      }
+
+      const res = await api.post('/jobs/', payload)
       showMessage('success', `Job created! Extracted ${res.data.records_count} records.`)
       fetchData()
       handleViewRecords(res.data)
@@ -170,9 +218,7 @@ export default function JobsPage() {
 
   const getDisplayData = (record: DataRecord) => {
     const edited = editedRecords.get(record.id)
-    if (edited) {
-      return { ...record.data, ...edited }
-    }
+    if (edited) return { ...record.data, ...edited }
     return record.data
   }
 
@@ -185,10 +231,7 @@ export default function JobsPage() {
     try {
       const recordsToSubmit = Array.from(editedRecords.entries()).map(([id, edits]) => {
         const record = records.find((r) => r.id === id)
-        return {
-          id,
-          data: { ...record?.data, ...edits },
-        }
+        return { id, data: { ...record?.data, ...edits } }
       })
 
       const res = await api.post(`/jobs/${activeJob.id}/submit/`, {
@@ -209,9 +252,9 @@ export default function JobsPage() {
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'completed': return <CheckCircle className="w-4 h-4" style={{ color: '#22c55e' }} />
-      case 'failed': return <XCircle className="w-4 h-4" style={{ color: '#ef4444' }} />
-      case 'running': return <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#22d3ee' }} />
-      default: return <Clock className="w-4 h-4" style={{ color: '#f59e0b' }} />
+      case 'failed':    return <XCircle className="w-4 h-4" style={{ color: '#ef4444' }} />
+      case 'running':   return <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#22d3ee' }} />
+      default:          return <Clock className="w-4 h-4" style={{ color: '#f59e0b' }} />
     }
   }
 
@@ -272,9 +315,7 @@ export default function JobsPage() {
 
             {connections.length === 0 ? (
               <div className="text-center py-6">
-                <p className="text-sm" style={{ color: '#64748b' }}>
-                  No connections available.
-                </p>
+                <p className="text-sm" style={{ color: '#64748b' }}>No connections available.</p>
                 <a href="/dashboard/connections"
                   className="text-sm mt-2 inline-block"
                   style={{ color: '#6366f1' }}>
@@ -286,8 +327,7 @@ export default function JobsPage() {
 
                 {/* Connection selector */}
                 <div>
-                  <label className="block text-sm font-medium mb-2"
-                    style={{ color: '#cbd5e1' }}>
+                  <label className="block text-sm font-medium mb-2" style={{ color: '#cbd5e1' }}>
                     Database Connection
                   </label>
                   <div className="relative">
@@ -310,8 +350,7 @@ export default function JobsPage() {
 
                 {/* Table selector */}
                 <div>
-                  <label className="block text-sm font-medium mb-2"
-                    style={{ color: '#cbd5e1' }}>
+                  <label className="block text-sm font-medium mb-2" style={{ color: '#cbd5e1' }}>
                     Table / Collection
                   </label>
                   <div className="relative">
@@ -319,9 +358,7 @@ export default function JobsPage() {
                       <div className="w-full px-4 py-3 rounded-xl flex items-center gap-2"
                         style={{ background: '#0f172a', border: '1px solid #334155' }}>
                         <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#6366f1' }} />
-                        <span className="text-sm" style={{ color: '#64748b' }}>
-                          Loading tables...
-                        </span>
+                        <span className="text-sm" style={{ color: '#64748b' }}>Loading tables...</span>
                       </div>
                     ) : (
                       <>
@@ -336,9 +373,7 @@ export default function JobsPage() {
                             opacity: tables.length === 0 ? 0.5 : 1,
                           }}>
                           <option value="">
-                            {tables.length === 0
-                              ? 'Select a connection first...'
-                              : 'Select a table...'}
+                            {tables.length === 0 ? 'Select a connection first...' : 'Select a table...'}
                           </option>
                           {tables.map((table) => (
                             <option key={table} value={table}>{table}</option>
@@ -353,12 +388,9 @@ export default function JobsPage() {
 
                 {/* Batch size */}
                 <div>
-                  <label className="block text-sm font-medium mb-2"
-                    style={{ color: '#cbd5e1' }}>
+                  <label className="block text-sm font-medium mb-2" style={{ color: '#cbd5e1' }}>
                     Batch Size
-                    <span className="ml-2 font-normal" style={{ color: '#64748b' }}>
-                      (rows to extract)
-                    </span>
+                    <span className="ml-2 font-normal" style={{ color: '#64748b' }}>(rows to extract)</span>
                   </label>
                   <input
                     type="number"
@@ -371,14 +403,140 @@ export default function JobsPage() {
                   />
                 </div>
 
-                {/* File format */}
+                {/* ── Query Builder ── */}
+                <div className="rounded-xl overflow-hidden"
+                  style={{ border: '1px solid #334155' }}>
+
+                  {/* Toggle header */}
+                  <button
+                    onClick={() => setShowQueryBuilder((v) => !v)}
+                    className="w-full flex items-center justify-between px-4 py-3 transition-all"
+                    style={{ background: '#0f172a', color: '#94a3b8' }}>
+                    <span className="flex items-center gap-2 text-sm font-medium">
+                      <Filter className="w-4 h-4" style={{ color: '#6366f1' }} />
+                      Query Builder
+                      {(filters.length > 0 || orderBy) && (
+                        <span className="px-2 py-0.5 rounded-full text-xs"
+                          style={{ background: '#6366f120', color: '#6366f1' }}>
+                          {filters.filter(f => f.column && f.value).length} filter{filters.filter(f => f.column && f.value).length !== 1 ? 's' : ''}
+                          {orderBy ? ` · sort` : ''}
+                        </span>
+                      )}
+                    </span>
+                    <ChevronDown
+                      className="w-4 h-4 transition-transform"
+                      style={{ transform: showQueryBuilder ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                    />
+                  </button>
+
+                  {showQueryBuilder && (
+                    <div className="p-4 space-y-4" style={{ background: '#0f172a50' }}>
+
+                      {/* Filters */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-medium uppercase tracking-wide"
+                            style={{ color: '#64748b' }}>
+                            Filters
+                          </span>
+                          <button
+                            onClick={addFilter}
+                            className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all"
+                            style={{ background: '#6366f120', color: '#6366f1' }}>
+                            <Plus className="w-3 h-3" /> Add Filter
+                          </button>
+                        </div>
+
+                        {filters.length === 0 ? (
+                          <p className="text-xs" style={{ color: '#475569' }}>
+                            No filters — all rows will be extracted.
+                          </p>
+                        ) : (
+                          <div className="space-y-2">
+                            {filters.map((f) => (
+                              <div key={f.id} className="flex items-center gap-2">
+                                {/* Column */}
+                                <input
+                                  placeholder="column"
+                                  value={f.column}
+                                  onChange={(e) => updateFilter(f.id, 'column', e.target.value)}
+                                  className="flex-1 px-2 py-1.5 rounded-lg text-xs text-white outline-none"
+                                  style={{ background: '#1e293b', border: '1px solid #334155', minWidth: 0 }}
+                                />
+                                {/* Operator */}
+                                <select
+                                  value={f.operator}
+                                  onChange={(e) => updateFilter(f.id, 'operator', e.target.value)}
+                                  className="px-2 py-1.5 rounded-lg text-xs text-white outline-none appearance-none"
+                                  style={{ background: '#1e293b', border: '1px solid #334155', width: '60px' }}>
+                                  {OPERATORS.map((op) => (
+                                    <option key={op} value={op}>{op}</option>
+                                  ))}
+                                </select>
+                                {/* Value */}
+                                <input
+                                  placeholder="value"
+                                  value={f.value}
+                                  onChange={(e) => updateFilter(f.id, 'value', e.target.value)}
+                                  className="flex-1 px-2 py-1.5 rounded-lg text-xs text-white outline-none"
+                                  style={{ background: '#1e293b', border: '1px solid #334155', minWidth: 0 }}
+                                />
+                                {/* Remove */}
+                                <button
+                                  onClick={() => removeFilter(f.id)}
+                                  className="p-1 rounded-lg flex-shrink-0"
+                                  style={{ color: '#64748b' }}>
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Sort */}
+                      <div>
+                        <span className="text-xs font-medium uppercase tracking-wide block mb-2"
+                          style={{ color: '#64748b' }}>
+                          Sort
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1 flex-1"
+                            style={{ position: 'relative' }}>
+                            <ArrowUpDown className="w-3 h-3 absolute left-2" style={{ color: '#64748b' }} />
+                            <input
+                              placeholder="column name"
+                              value={orderBy}
+                              onChange={(e) => setOrderBy(e.target.value)}
+                              className="w-full pl-6 pr-2 py-1.5 rounded-lg text-xs text-white outline-none"
+                              style={{ background: '#1e293b', border: '1px solid #334155' }}
+                            />
+                          </div>
+                          <button
+                            onClick={() => setOrderDir((d) => d === 'asc' ? 'desc' : 'asc')}
+                            className="px-3 py-1.5 rounded-lg text-xs font-medium uppercase transition-all"
+                            style={{
+                              background: '#6366f120',
+                              border: '1px solid #6366f140',
+                              color: '#6366f1',
+                              minWidth: '48px',
+                            }}>
+                            {orderDir}
+                          </button>
+                        </div>
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+
+                {/* Export format */}
                 <div>
-                  <label className="block text-sm font-medium mb-2"
-                    style={{ color: '#cbd5e1' }}>
+                  <label className="block text-sm font-medium mb-2" style={{ color: '#cbd5e1' }}>
                     Export Format
                   </label>
                   <div className="flex gap-2">
-                    {(['json', 'csv'] as const).map((fmt) => (
+                    {(['json', 'csv', 'xlsx'] as const).map((fmt) => (
                       <button
                         key={fmt}
                         onClick={() => setFileFormat(fmt)}
@@ -425,15 +583,12 @@ export default function JobsPage() {
             <div ref={gridRef} className="rounded-2xl overflow-hidden"
               style={{ background: '#1e293b', border: '1px solid #6366f1' }}>
 
-              {/* Grid header */}
               <div className="flex items-center justify-between px-6 py-4"
                 style={{ borderBottom: '1px solid #334155', background: '#6366f110' }}>
                 <div className="flex items-center gap-3">
                   <Table className="w-5 h-5" style={{ color: '#6366f1' }} />
                   <div>
-                    <h3 className="font-semibold text-white">
-                      {activeJob.table_name}
-                    </h3>
+                    <h3 className="font-semibold text-white">{activeJob.table_name}</h3>
                     <p className="text-xs" style={{ color: '#64748b' }}>
                       {records.length} records
                       {editedRecords.size > 0 && (
@@ -478,14 +633,12 @@ export default function JobsPage() {
                 </div>
               </div>
 
-              {/* Hint when no edits yet */}
               {records.length > 0 && editedRecords.size === 0 && (
                 <div className="px-6 py-2 text-xs" style={{ background: '#0f172a50', color: '#64748b' }}>
                   💡 Click any cell below to edit it, then click Submit to save
                 </div>
               )}
 
-              {/* Data grid */}
               {loadingRecords ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#6366f1' }} />
@@ -515,23 +668,16 @@ export default function JobsPage() {
                         return (
                           <tr key={record.id}
                             style={{
-                              borderBottom: rowIndex < records.length - 1
-                                ? '1px solid #0f172a'
-                                : 'none',
+                              borderBottom: rowIndex < records.length - 1 ? '1px solid #0f172a' : 'none',
                               background: isEdited ? '#6366f115' : 'transparent',
                             }}>
                             {columns.map((col) => (
                               <td key={col} className="px-4 py-2">
                                 <input
                                   value={displayData[col] ?? ''}
-                                  onChange={(e) =>
-                                    handleCellEdit(record.id, col, e.target.value)
-                                  }
+                                  onChange={(e) => handleCellEdit(record.id, col, e.target.value)}
                                   className="w-full px-2 py-1 rounded-lg text-sm text-white outline-none transition-all min-w-24"
-                                  style={{
-                                    background: 'transparent',
-                                    border: '1px solid transparent',
-                                  }}
+                                  style={{ background: 'transparent', border: '1px solid transparent' }}
                                   onFocus={(e) => {
                                     e.target.style.background = '#0f172a'
                                     e.target.style.borderColor = '#6366f1'
@@ -585,9 +731,7 @@ export default function JobsPage() {
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="font-medium text-white truncate">
-                          {job.table_name}
-                        </p>
+                        <p className="font-medium text-white truncate">{job.table_name}</p>
                         <span className={`text-xs px-2 py-0.5 rounded-full capitalize ${getStatusColor(job.status)}`}>
                           {job.status}
                         </span>
@@ -596,9 +740,7 @@ export default function JobsPage() {
                         {job.records_count} records · Batch {job.batch_size} · {formatDate(job.created_at)}
                       </p>
                       {job.error_message && (
-                        <p className="text-xs mt-1" style={{ color: '#ef4444' }}>
-                          {job.error_message}
-                        </p>
+                        <p className="text-xs mt-1" style={{ color: '#ef4444' }}>{job.error_message}</p>
                       )}
                     </div>
 

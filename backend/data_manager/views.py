@@ -54,11 +54,19 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
             # Get the connector for this connection
             connector = get_connector(job.connection)
 
+            # Extract optional query builder params
+            filters = request.data.get('filters', None)
+            order_by = request.data.get('order_by', None)
+            order_dir = request.data.get('order_dir', 'asc')
+
             # Fetch data from the external database
             rows = connector.fetch_data(
                 table_name=job.table_name,
                 batch_size=job.batch_size,
-                offset=0
+                offset=0,
+                filters=filters,
+                order_by=order_by,
+                order_dir=order_dir,
             )
 
             # Save each row as an ExtractedRecord

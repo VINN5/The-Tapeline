@@ -6,37 +6,20 @@ from abc import ABC, abstractmethod
 
 
 class BaseConnector(ABC):
-    """
-    Abstract base class for all database connectors.
-    Every connector (PostgreSQL, MySQL, MongoDB, ClickHouse)
-    must implement these three methods.
-    Think of this as a contract — every connector must be
-    able to test its connection, list tables, and fetch data.
-    """
-
     @abstractmethod
     def test_connection(self):
-        """Test if the connection works. Returns True or False."""
         pass
 
     @abstractmethod
     def get_tables(self):
-        """Returns a list of table/collection names in the database."""
         pass
 
     @abstractmethod
-    def fetch_data(self, table_name, batch_size=100, offset=0):
-        """
-        Fetches a batch of data from the specified table.
-        batch_size: how many rows to fetch
-        offset: how many rows to skip (for pagination)
-        Returns a list of dictionaries, one per row.
-        """
+    def fetch_data(self, table_name, batch_size=100, offset=0, filters=None, order_by=None, order_dir='asc'):
         pass
 
 
 class PostgreSQLConnector(BaseConnector):
-    """Connector for PostgreSQL databases."""
 
     def __init__(self, host, port, database_name, username, password):
         self.host = host
@@ -46,10 +29,6 @@ class PostgreSQLConnector(BaseConnector):
         self.password = password
 
     def _get_connection(self):
-        """
-        Creates and returns a PostgreSQL connection.
-        Supports both standard and Neon (SSL) connections.
-        """
         if 'neon.tech' in self.host or self.host.startswith('postgresql://') or self.host.startswith('postgres://'):
             return psycopg2.connect(self.host)
         return psycopg2.connect(
@@ -69,7 +48,6 @@ class PostgreSQLConnector(BaseConnector):
             return False
 
     def get_tables(self):
-        """Returns all table names in the public schema."""
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -81,14 +59,35 @@ class PostgreSQLConnector(BaseConnector):
         conn.close()
         return tables
 
-    def fetch_data(self, table_name, batch_size=100, offset=0):
-        """Fetches rows from a table and returns them as a list of dicts."""
+    def fetch_data(self, table_name, batch_size=100, offset=0, filters=None, order_by=None, order_dir='asc'):
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            f'SELECT * FROM "{table_name}" LIMIT %s OFFSET %s',
-            (batch_size, offset)
-        )
+
+        query = f'SELECT * FROM "{table_name}"'
+        params = []
+
+        # Build WHERE clause
+        if filters:
+            allowed_operators = {'=', '!=', '>', '<', '>=', '<=', 'LIKE', 'ILIKE'}
+            conditions = []
+            for f in filters:
+                op = f.get('operator', '=').upper()
+                if op not in allowed_operators:
+                    op = '='
+                conditions.append(f'"{f["column"]}" {op} %s')
+                params.append(f['value'])
+            query += ' WHERE ' + ' AND '.join(conditions)
+
+        # Build ORDER BY clause
+        if order_by:
+            direction = 'DESC' if order_dir.lower() == 'desc' else 'ASC'
+            query += f' ORDER BY "{order_by}" {direction}'
+
+        # LIMIT and OFFSET
+        query += ' LIMIT %s OFFSET %s'
+        params.extend([batch_size, offset])
+
+        cursor.execute(query, params)
         columns = [desc[0] for desc in cursor.description]
         rows = cursor.fetchall()
         conn.close()
@@ -96,7 +95,6 @@ class PostgreSQLConnector(BaseConnector):
 
 
 class MySQLConnector(BaseConnector):
-    """Connector for MySQL databases."""
 
     def __init__(self, host, port, database_name, username, password):
         self.host = host
@@ -106,7 +104,6 @@ class MySQLConnector(BaseConnector):
         self.password = password
 
     def _get_connection(self):
-        """Creates and returns a MySQL connection."""
         return pymysql.connect(
             host=self.host,
             port=int(self.port),
@@ -132,20 +129,41 @@ class MySQLConnector(BaseConnector):
         conn.close()
         return tables
 
-    def fetch_data(self, table_name, batch_size=100, offset=0):
+    def fetch_data(self, table_name, batch_size=100, offset=0, filters=None, order_by=None, order_dir='asc'):
         conn = self._get_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            f'SELECT * FROM `{table_name}` LIMIT %s OFFSET %s',
-            (batch_size, offset)
-        )
+
+        query = f'SELECT * FROM `{table_name}`'
+        params = []
+
+        # Build WHERE clause
+        if filters:
+            allowed_operators = {'=', '!=', '>', '<', '>=', '<=', 'LIKE'}
+            conditions = []
+            for f in filters:
+                op = f.get('operator', '=').upper()
+                if op not in allowed_operators:
+                    op = '='
+                conditions.append(f'`{f["column"]}` {op} %s')
+                params.append(f['value'])
+            query += ' WHERE ' + ' AND '.join(conditions)
+
+        # Build ORDER BY clause
+        if order_by:
+            direction = 'DESC' if order_dir.lower() == 'desc' else 'ASC'
+            query += f' ORDER BY `{order_by}` {direction}'
+
+        # LIMIT and OFFSET
+        query += ' LIMIT %s OFFSET %s'
+        params.extend([batch_size, offset])
+
+        cursor.execute(query, params)
         rows = cursor.fetchall()
         conn.close()
         return list(rows)
 
 
 class MongoDBConnector(BaseConnector):
-    """Connector for MongoDB databases."""
 
     def __init__(self, host, port, database_name, username, password):
         self.host = host
@@ -155,10 +173,6 @@ class MongoDBConnector(BaseConnector):
         self.password = password
 
     def _get_client(self):
-        """
-        Creates and returns a MongoDB client.
-        Supports both standard and Atlas (SRV) connection strings.
-        """
         if self.host.startswith('mongodb+srv://') or self.host.startswith('mongodb://'):
             return pymongo.MongoClient(self.host)
         uri = f"mongodb://{self.username}:{self.password}@{self.host}:{self.port}/"
@@ -174,29 +188,45 @@ class MongoDBConnector(BaseConnector):
             return False
 
     def get_tables(self):
-        """In MongoDB, tables are called collections."""
         client = self._get_client()
         db = client[self.database_name]
         collections = db.list_collection_names()
         client.close()
         return collections
 
-    def fetch_data(self, table_name, batch_size=100, offset=0):
-        """Fetches documents from a MongoDB collection."""
+    def fetch_data(self, table_name, batch_size=100, offset=0, filters=None, order_by=None, order_dir='asc'):
         client = self._get_client()
         db = client[self.database_name]
         collection = db[table_name]
-        documents = list(
-            collection.find({}, {'_id': 0})
-            .skip(offset)
-            .limit(batch_size)
-        )
+
+        # Build MongoDB filter dict
+        mongo_filter = {}
+        if filters:
+            operator_map = {
+                '=':  '$eq',
+                '!=': '$ne',
+                '>':  '$gt',
+                '<':  '$lt',
+                '>=': '$gte',
+                '<=': '$lte',
+            }
+            for f in filters:
+                op = operator_map.get(f.get('operator', '='), '$eq')
+                mongo_filter[f['column']] = {op: f['value']}
+
+        cursor = collection.find(mongo_filter, {'_id': 0}).skip(offset).limit(batch_size)
+
+        # Apply sort
+        if order_by:
+            direction = pymongo.DESCENDING if order_dir.lower() == 'desc' else pymongo.ASCENDING
+            cursor = cursor.sort(order_by, direction)
+
+        documents = list(cursor)
         client.close()
         return documents
 
 
 class ClickHouseConnector(BaseConnector):
-    """Connector for ClickHouse databases."""
 
     def __init__(self, host, port, database_name, username, password):
         self.host = host
@@ -206,7 +236,6 @@ class ClickHouseConnector(BaseConnector):
         self.password = password
 
     def _get_client(self):
-        """Creates and returns a ClickHouse client."""
         return clickhouse_connect.get_client(
             host=self.host,
             port=int(self.port),
@@ -228,21 +257,40 @@ class ClickHouseConnector(BaseConnector):
         result = client.query('SHOW TABLES')
         return [row[0] for row in result.result_rows]
 
-    def fetch_data(self, table_name, batch_size=100, offset=0):
+    def fetch_data(self, table_name, batch_size=100, offset=0, filters=None, order_by=None, order_dir='asc'):
         client = self._get_client()
-        result = client.query(
-            f'SELECT * FROM `{table_name}` LIMIT {batch_size} OFFSET {offset}'
-        )
+
+        query = f'SELECT * FROM `{table_name}`'
+        params = []
+
+        # Build WHERE clause
+        # ClickHouse uses {p0:String} style params for safety
+        if filters:
+            allowed_operators = {'=', '!=', '>', '<', '>=', '<=', 'LIKE'}
+            conditions = []
+            for i, f in enumerate(filters):
+                op = f.get('operator', '=').upper()
+                if op not in allowed_operators:
+                    op = '='
+                conditions.append(f'`{f["column"]}` {op} {{p{i}:String}}')
+                params.append(f['value'])
+            query += ' WHERE ' + ' AND '.join(conditions)
+
+        # Build ORDER BY clause
+        if order_by:
+            direction = 'DESC' if order_dir.lower() == 'desc' else 'ASC'
+            query += f' ORDER BY `{order_by}` {direction}'
+
+        query += f' LIMIT {batch_size} OFFSET {offset}'
+
+        param_dict = {f'p{i}': v for i, v in enumerate(params)}
+        result = client.query(query, parameters=param_dict)
         columns = result.column_names
         rows = result.result_rows
         return [dict(zip(columns, row)) for row in rows]
 
 
 def get_connector(db_connection):
-    """
-    Factory function — given a DatabaseConnection model instance,
-    returns the correct connector class for that database type.
-    """
     connectors = {
         'postgresql': PostgreSQLConnector,
         'mysql': MySQLConnector,
