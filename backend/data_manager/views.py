@@ -168,12 +168,49 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
                 writer.writerows(data_to_save)
             file_bytes = output.getvalue().encode('utf-8')
 
+        elif file_format == 'xlsx':
+            import io
+            import openpyxl
+            from openpyxl.styles import Font, PatternFill, Alignment
+
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = job.table_name[:31]  # Excel sheet names max 31 chars
+
+            if data_to_save:
+                headers = list(data_to_save[0].keys())
+
+                # Style the header row
+                header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+                header_font = Font(color="FFFFFF", bold=True)
+
+                for col_num, header in enumerate(headers, 1):
+                    cell = ws.cell(row=1, column=col_num, value=header)
+                    cell.fill = header_fill
+                    cell.font = header_font
+                    cell.alignment = Alignment(horizontal="center")
+
+                # Write data rows
+                for row_num, row in enumerate(data_to_save, 2):
+                    for col_num, header in enumerate(headers, 1):
+                        ws.cell(row=row_num, column=col_num, value=row.get(header, ''))
+
+                # Auto-fit column widths
+                for col in ws.columns:
+                    max_length = max((len(str(cell.value or '')) for cell in col), default=10)
+                    ws.column_dimensions[col[0].column_letter].width = min(max_length + 4, 50)
+
+            output = io.BytesIO()
+            wb.save(output)
+            file_bytes = output.getvalue()
+
         else:
             return Response(
-                {'error': 'Invalid format. Use json or csv.'},
+                {'error': 'Invalid format. Use json, csv, or xlsx.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
+            
+            
         # Save the file to disk and create a StoredFile record
         stored_file = StoredFile.objects.create(
             owner=request.user,

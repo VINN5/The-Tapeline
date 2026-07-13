@@ -9,3 +9,4 @@ djangorestframework-simplejwt
 pymysql
 cryptography
 drf-spectacular
+openpyxl
