@@ -31,8 +31,8 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
         """Users see only their own jobs. Admins see all jobs."""
         user = self.request.user
         if user.is_admin():
-            return ExtractionJob.objects.all()
-        return ExtractionJob.objects.filter(owner=user)
+            return ExtractionJob.objects.select_related('owner', 'connection').all()
+        return ExtractionJob.objects.select_related('owner', 'connection').filter(owner=user)
 
     def create(self, request, *args, **kwargs):
         """
@@ -69,12 +69,15 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
                 order_dir=order_dir,
             )
 
-            # Save each row as an ExtractedRecord
+            # Save all rows in a single DB query using bulk_create
+            records_to_create = []
             for row in rows:
-                # Convert any non-serializable values to strings
-                clean_row = {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
-                           for k, v in row.items()}
-                ExtractedRecord.objects.create(job=job, data=clean_row)
+                clean_row = {
+                    k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
+                    for k, v in row.items()
+                }
+                records_to_create.append(ExtractedRecord(job=job, data=clean_row))
+            ExtractedRecord.objects.bulk_create(records_to_create, batch_size=500)
 
             # Mark job as completed
             job.status = 'completed'
@@ -98,11 +101,19 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def records(self, request, pk=None):
         """
-        Returns all extracted records for a job.
+        Returns paginated extracted records for a job.
         GET /api/jobs/{id}/records/
+        GET /api/jobs/{id}/records/?page=2
         """
         job = self.get_object()
         records = job.records.all()
+
+        # Apply pagination
+        page = self.paginate_queryset(records)
+        if page is not None:
+            serializer = ExtractedRecordSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
         serializer = ExtractedRecordSerializer(records, many=True)
         return Response(serializer.data)
 
@@ -115,7 +126,7 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
         POST /api/jobs/{id}/submit/
         Body: {"records": [{"id": 1, "data": {...}}, ...], "format": "json"}
         """
-        job = self.get_object()
+        job = ExtractionJob.objects.select_related('connection').get(pk=pk)
         records_data = request.data.get('records', [])
         file_format = request.data.get('format', 'json')
 
@@ -254,12 +265,11 @@ class StoredFileViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if user.is_admin():
-            return StoredFile.objects.all()
-        return StoredFile.objects.filter(
-            owner=user
-        ) | StoredFile.objects.filter(
-            shared_with=user
-        )
+            return StoredFile.objects.select_related('owner', 'job').all()
+        return (
+            StoredFile.objects.select_related('owner', 'job').filter(owner=user) |
+            StoredFile.objects.select_related('owner', 'job').filter(shared_with=user)
+        ).distinct()
 
     @action(detail=True, methods=['post'])
     def share(self, request, pk=None):
