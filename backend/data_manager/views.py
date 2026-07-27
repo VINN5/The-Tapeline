@@ -122,7 +122,7 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
         """
         Submits edited records back to the backend.
         Validates the data, updates the records,
-        and saves them as both a DB record and a file (JSON + CSV).
+        and saves them as both a DB record and a file (JSON, CSV, or XLSX).
         POST /api/jobs/{id}/submit/
         Body: {"records": [{"id": 1, "data": {...}}, ...], "format": "json"}
         """
@@ -194,12 +194,11 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
 
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = job.table_name[:31]  # Excel sheet names max 31 chars
+            ws.title = job.table_name[:31]
 
             if data_to_save:
                 headers = list(data_to_save[0].keys())
 
-                # Style the header row
                 header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
                 header_font = Font(color="FFFFFF", bold=True)
 
@@ -209,12 +208,10 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
                     cell.font = header_font
                     cell.alignment = Alignment(horizontal="center")
 
-                # Write data rows
                 for row_num, row in enumerate(data_to_save, 2):
                     for col_num, header in enumerate(headers, 1):
                         ws.cell(row=row_num, column=col_num, value=row.get(header, ''))
 
-                # Auto-fit column widths
                 for col in ws.columns:
                     max_length = max((len(str(cell.value or '')) for cell in col), default=10)
                     ws.column_dimensions[col[0].column_letter].width = min(max_length + 4, 50)
@@ -228,8 +225,7 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
                 {'error': 'Invalid format. Use json, csv, or xlsx.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-            
+
         # Save the file to disk and create a StoredFile record
         stored_file = StoredFile.objects.create(
             owner=request.user,
@@ -252,6 +248,7 @@ class StoredFileViewSet(viewsets.ModelViewSet):
     GET    /api/files/{id}/         - get a single file
     DELETE /api/files/{id}/         - delete a file
     POST   /api/files/{id}/share/   - share a file with another user
+    GET    /api/files/{id}/download/ - download the file with authentication
     """
 
     serializer_class = StoredFileSerializer
@@ -281,7 +278,6 @@ class StoredFileViewSet(viewsets.ModelViewSet):
         """
         stored_file = self.get_object()
 
-        # Only the owner can share their file
         if stored_file.owner != request.user and not request.user.is_admin():
             return Response(
                 {'error': 'Only the file owner can share this file.'},
@@ -307,3 +303,34 @@ class StoredFileViewSet(viewsets.ModelViewSet):
                 {'error': f'User {username} not found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """
+        Streams a file download with authentication.
+        GET /api/files/{id}/download/
+        """
+        from django.http import HttpResponse
+
+        stored_file = self.get_object()
+
+        try:
+            file_content = stored_file.file.read()
+        except Exception:
+            return Response(
+                {'error': 'File not found on disk.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        content_types = {
+            'json': 'application/json',
+            'csv': 'text/csv',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }
+        content_type = content_types.get(stored_file.file_format, 'application/octet-stream')
+
+        filename = stored_file.file.name.split('/')[-1]
+
+        response = HttpResponse(file_content, content_type=content_type)
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
