@@ -91,15 +91,22 @@ export default function JobsPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
   // Ref for auto-scrolling to grid
+ // Ref for auto-scrolling to grid
   const gridRef = useRef<HTMLDivElement>(null)
+
+  // Ref for polling interval
+  const pollingRef = useRef<NodeJS.Timeout | null>(null)
 
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text })
     setTimeout(() => setMessage(null), 5000)
   }
 
-  useEffect(() => {
+useEffect(() => {
     fetchData()
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -183,14 +190,45 @@ export default function JobsPage() {
       }
 
       const res = await api.post('/jobs/', payload)
-      showMessage('success', `Job created! Extracted ${res.data.records_count} records.`)
-      fetchData()
-      handleViewRecords(res.data)
+      showMessage('success', 'Job queued — extracting in the background...')
+      setJobs((prev) => [res.data, ...prev])
+      pollJobStatus(res.data.id)
     } catch (err: any) {
       showMessage('error', err.response?.data?.error || 'Failed to create job.')
     } finally {
       setCreating(false)
     }
+  }
+
+const pollJobStatus = (jobId: number) => {
+    // Clear any existing poll
+    if (pollingRef.current) clearInterval(pollingRef.current)
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        const res = await api.get(`/jobs/${jobId}/`)
+        const updatedJob = res.data
+
+        // Update job in the list
+        setJobs((prev) =>
+          prev.map((j) => (j.id === jobId ? updatedJob : j))
+        )
+
+        if (updatedJob.status === 'completed') {
+          clearInterval(pollingRef.current!)
+          pollingRef.current = null
+          showMessage('success', `Extraction complete — ${updatedJob.records_count} records ready.`)
+          handleViewRecords(updatedJob)
+        } else if (updatedJob.status === 'failed') {
+          clearInterval(pollingRef.current!)
+          pollingRef.current = null
+          showMessage('error', updatedJob.error_message || 'Extraction failed.')
+        }
+      } catch {
+        clearInterval(pollingRef.current!)
+        pollingRef.current = null
+      }
+    }, 2500)
   }
 
   const handleViewRecords = async (job: Job) => {

@@ -4,13 +4,17 @@
 
 **A full-stack data connector platform for engineers and analysts who need to extract, edit, and store data from multiple database sources — fast.**
 
-[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
-[![Django](https://img.shields.io/badge/Django-REST_Framework-092E20?style=flat-square&logo=django&logoColor=white)](https://www.django-rest-framework.org/)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)](https://python.org)
+[![Django](https://img.shields.io/badge/Django-6.1-092E20?style=flat-square&logo=django&logoColor=white)](https://www.django-rest-framework.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=next.js&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![Celery](https://img.shields.io/badge/Celery-5.6-37814A?style=flat-square&logo=celery&logoColor=white)](https://docs.celeryq.dev/)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+
+**[Live Demo](https://the-tapeline.vercel.app) · [API Docs](https://the-tapeline.onrender.com/api/docs/) · [ReDoc](https://the-tapeline.onrender.com/api/redoc/)**
 
 </div>
 
@@ -18,9 +22,9 @@
 
 ## What is TapeLine?
 
-TapeLine lets you connect to any of your databases — PostgreSQL, MySQL, MongoDB, or ClickHouse — extract data in configurable batches, edit records interactively in a live data grid, and export the results as JSON or CSV with full source metadata. All from one clean, role-aware web interface.
+TapeLine lets you connect to any of your databases — PostgreSQL, MySQL, MongoDB, or ClickHouse — extract data in configurable batches with dynamic filtering and sorting, edit records interactively in a live data grid, and export the results as JSON, CSV, or Excel with full source metadata. All from one clean, role-aware web interface.
 
-It was built as a full-stack developer assessment project and demonstrates production patterns including JWT auth with token blacklisting, encrypted credential storage, dual write storage, and inline data editing via TanStack React Table.
+Built as a full-stack portfolio project demonstrating production patterns: JWT auth with token blacklisting, encrypted credential storage, async job processing with Celery + Redis, composite database indexes, bulk record creation, paginated API responses, and authenticated file downloads.
 
 ---
 
@@ -30,13 +34,18 @@ It was built as a full-stack developer assessment project and demonstrates produ
 |---|---|
 | 🔗 **Multi-DB Connectors** | Connect to PostgreSQL, MySQL, MongoDB, and ClickHouse |
 | 📦 **Batch Extraction** | Configure batch sizes when pulling records from any source |
+| 🔍 **Query Builder** | Filter by column/operator/value and sort before extraction |
 | ✏️ **Inline Editing** | Edit extracted records directly in an interactive data grid |
-| 💾 **Dual Storage** | Submissions saved to PostgreSQL *and* exported as JSON or CSV |
-| 🕐 **Metadata on Export** | All exported files include source info and timestamps |
+| 💾 **Multi-Format Export** | Export as JSON, CSV, or styled Excel (.xlsx) with source metadata |
+| ⚡ **Async Job Processing** | Celery + Redis background workers — API responds instantly |
+| 📄 **Authenticated Downloads** | Files served via JWT-authenticated endpoint, not raw URLs |
+| 🕐 **Metadata on Export** | All exported files include source DB, table, and timestamps |
 | 🔐 **Role-Based Access** | Admins see everything; users see only their own data and shared files |
-| ⚡ **Connection Presets** | One-click presets for Docker-local DBs, Neon PostgreSQL, and MongoDB Atlas |
+| ⚙️ **Connection Presets** | One-click presets for Docker-local DBs, Neon PostgreSQL, and MongoDB Atlas |
 | 🔑 **JWT Auth** | Login, token refresh, and logout with refresh-token blacklisting |
 | 🔒 **Encrypted Credentials** | Database passwords stored using Fernet symmetric encryption |
+| 📊 **Auto API Docs** | Swagger UI and ReDoc generated via drf-spectacular |
+| 🚀 **Optimised Queries** | Composite DB indexes, select_related, and bulk_create throughout |
 
 ---
 
@@ -49,38 +58,47 @@ It was built as a full-stack developer assessment project and demonstrates produ
 | **Server State** | TanStack React Query |
 | **Data Grid** | TanStack React Table |
 | **Styling** | Tailwind CSS |
-| **Backend** | Django + Django REST Framework |
+| **Backend** | Django 6.1 + Django REST Framework |
 | **Auth** | SimpleJWT (with token blacklisting) |
-| **Primary DB** | PostgreSQL |
+| **Async Tasks** | Celery 5.6 + Redis 7 |
+| **Primary DB** | PostgreSQL 16 |
 | **Connectors** | psycopg2, PyMySQL, pymongo, clickhouse-connect |
+| **Export** | openpyxl (Excel), csv, json |
+| **API Docs** | drf-spectacular (Swagger + ReDoc) |
 | **Infrastructure** | Docker + Docker Compose |
+| **Deployment** | Render (backend) + Vercel (frontend) |
 
 ---
 
 ## 🏗 Project Structure
 
-```
 The-Tapeline/
 ├── backend/
-│   ├── accounts/        # User model, JWT auth, registration & profiles
-│   ├── connectors/      # DB connection model + multi-DB connector abstraction
-│   ├── data_manager/    # Extraction jobs, records, dual storage logic
-│   ├── core/            # Project-level config utilities
-│   └── tapeline/        # Django project settings & URL routing
+│ ├── accounts/ # User model, JWT auth, registration & profiles
+│ ├── connectors/ # DB connection model + multi-DB connector abstraction
+│ ├── data_manager/ # Extraction jobs, records, Celery tasks, file downloads
+│ │ ├── models.py # ExtractionJob, ExtractedRecord, StoredFile (with indexes)
+│ │ ├── views.py # REST endpoints with select_related + bulk_create
+│ │ └── tasks.py # Celery async extraction task
+│ ├── core/ # Project-level config utilities
+│ └── tapeline/ # Django settings, URL routing, Celery config
+│ ├── celery.py # Celery app configuration
+│ └── settings.py # CELERY_*, REST_FRAMEWORK, SPECTACULAR_SETTINGS
 ├── frontend/
-│   ├── app/
-│   │   ├── dashboard/
-│   │   │   ├── connections/   # Connection creation & management UI
-│   │   │   ├── jobs/          # Extraction jobs + inline editable data grid
-│   │   │   └── files/         # File listing, download, and share
-│   │   ├── login/
-│   │   └── register/
-│   └── lib/
-│       ├── api.ts             # Axios instance with JWT interceptors
-│       └── store.ts           # Zustand auth store
-├── docker-compose.yml
+│ ├── app/
+│ │ ├── dashboard/
+│ │ │ ├── connections/ # Connection creation & management UI
+│ │ │ ├── jobs/ # Query builder, extraction jobs, inline data grid
+│ │ │ └── files/ # File listing, authenticated download, share
+│ │ ├── login/
+│ │ └── register/
+│ └── lib/
+│ ├── api.ts # Axios instance with JWT interceptors
+│ └── store.ts # Zustand auth store
+├── docker-compose.yml # 9 services: backend, frontend, celery, redis, 4 DBs
+├── .env.example # Environment variable template
 └── README.md
-```
+
 
 ---
 
@@ -88,7 +106,7 @@ The-Tapeline/
 
 ### Prerequisites
 
-- [Docker](https://www.docker.com/) and Docker Compose installed on your machine
+- [Docker](https://www.docker.com/) and Docker Compose installed
 
 ### 1. Clone the repository
 
@@ -99,17 +117,20 @@ cd The-Tapeline
 
 ### 2. Set up environment variables
 
-Create a `.env` file inside the `backend/` directory:
+Copy the example file and fill in your values:
 
-```env
-SECRET_KEY=your-django-secret-key
-ENCRYPTION_KEY=your-fernet-encryption-key
-DEBUG=True
+```bash
+cp .env.example .env
 ```
 
-> **Generate a Fernet key** by running:
+> **Generate a Fernet encryption key:**
 > ```bash
 > python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+> ```
+
+> **Generate a Django secret key:**
+> ```bash
+> python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
 > ```
 
 ### 3. Start all services
@@ -118,7 +139,7 @@ DEBUG=True
 docker compose up --build
 ```
 
-This spins up the Django backend, Next.js frontend, and a PostgreSQL database.
+This spins up 9 containers: Django backend, Next.js frontend, Celery worker, Redis, PostgreSQL, MySQL, MongoDB, and ClickHouse.
 
 ### 4. Access the app
 
@@ -126,6 +147,8 @@ This spins up the Django backend, Next.js frontend, and a PostgreSQL database.
 |---|---|
 | Frontend | http://localhost:3000 |
 | Backend API | http://localhost:8000/api/ |
+| Swagger UI | http://localhost:8000/api/docs/ |
+| ReDoc | http://localhost:8000/api/redoc/ |
 
 ---
 
@@ -154,40 +177,62 @@ This spins up the Django backend, Next.js frontend, and a PostgreSQL database.
 | `GET` | `/api/connections/presets/` | Get available preset configs |
 | `POST` | `/api/connections/connect_preset/` | Connect using a preset |
 
-### Jobs & Files
+### Jobs
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/jobs/` | List extraction jobs |
-| `POST` | `/api/jobs/` | Create and run a new extraction job |
-| `GET` | `/api/jobs/{id}/records/` | Get extracted records for a job |
+| `POST` | `/api/jobs/` | Create job — dispatches async Celery task, returns instantly |
+| `GET` | `/api/jobs/{id}/` | Get a single job and its current status |
+| `GET` | `/api/jobs/{id}/records/` | Get paginated extracted records |
 | `POST` | `/api/jobs/{id}/submit/` | Submit edited records and generate export file |
+
+### Files
+
+| Method | Endpoint | Description |
+|---|---|---|
 | `GET` | `/api/files/` | List files accessible to you |
-| `GET` | `/api/files/{id}/download/` | Download a file |
-| `POST` | `/api/files/{id}/share/` | Share a file with another user |
+| `GET` | `/api/files/{id}/download/` | Authenticated file download (JSON/CSV/XLSX) |
+| `POST` | `/api/files/{id}/share/` | Share a file with another user by username |
 | `DELETE` | `/api/files/{id}/` | Delete a file |
+
+---
+
+## ⚙️ How Async Extraction Works
+
+1. User submits a job via the UI
+2. API creates the job record with `status: pending` and responds **immediately**
+3. Celery worker picks up the task from Redis queue
+4. Worker fetches data from the external database, applies filters/sort, and bulk-creates records
+5. Job status updates to `completed` or `failed`
+6. Frontend polls the job status and loads records when ready
 
 ---
 
 ## 🧪 Running Tests
 
 ```bash
-# Run backend unit tests inside the running container
 docker compose exec backend python manage.py test
 ```
-
-The test suite covers authentication flows, connection validation, extraction job logic, and role-based access controls.
 
 ---
 
 ## 🗺 Roadmap
 
-- [ ] Query builder UI — filter and sort before extraction
-- [ ] Excel (`.xlsx`) export support
-- [ ] Scheduled extractions with Celery + Redis
-- [ ] Auto-generated API docs via `drf-spectacular` (Swagger UI)
+- [x] Multi-DB connectors (PostgreSQL, MySQL, MongoDB, ClickHouse)
+- [x] Batch extraction with configurable batch sizes
+- [x] Inline record editing with TanStack React Table
+- [x] Multi-format export (JSON, CSV, Excel)
+- [x] Query builder — filter and sort before extraction
+- [x] Async job processing with Celery + Redis
+- [x] Auto-generated API docs (Swagger UI + ReDoc)
+- [x] Authenticated file downloads
+- [x] DB performance optimisation (indexes, select_related, bulk_create)
+- [x] Live deployment (Render + Vercel)
+- [ ] Frontend polling for real-time job status
 - [ ] Connection health status indicators
-- [ ] Live deployment (Railway + Vercel)
+- [ ] Scheduled extractions (cron-style via Celery Beat)
+- [ ] Virtualised data grid for large record sets
 
 ---
 
