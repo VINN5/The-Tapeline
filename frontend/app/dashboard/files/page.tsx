@@ -24,7 +24,7 @@ import { formatDate } from '@/lib/utils'
 interface StoredFile {
   id: number
   job: number
-  file_format: 'json' | 'csv'
+  file_format: 'json' | 'csv' | 'xlsx'
   file: string
   source_metadata: {
     db_type?: string
@@ -43,7 +43,7 @@ export default function FilesPage() {
   const [files, setFiles] = useState<StoredFile[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [filterFormat, setFilterFormat] = useState<'all' | 'json' | 'csv'>('all')
+  const [filterFormat, setFilterFormat] = useState<'all' | 'json' | 'csv' | 'xlsx'>('all')
   const [shareFileId, setShareFileId] = useState<number | null>(null)
   const [shareUsername, setShareUsername] = useState('')
   const [sharing, setSharing] = useState(false)
@@ -73,11 +73,11 @@ export default function FilesPage() {
 
   const handleDownload = async (file: StoredFile) => {
     try {
-      const backendBase = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api').replace('/api', '')
-      const fileUrl = file.file.startsWith('http') ? file.file : `${backendBase}${file.file}`
-      const response = await fetch(fileUrl)
-      if (!response.ok) throw new Error('Download failed')
-      const blob = await response.blob()
+      // Use the authenticated API endpoint instead of the raw file URL
+      const response = await api.get(`/files/${file.id}/download/`, {
+        responseType: 'blob',
+      })
+      const blob = new Blob([response.data])
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
@@ -260,7 +260,7 @@ export default function FilesPage() {
           />
         </div>
         <div className="flex gap-2">
-          {(['all', 'json', 'csv'] as const).map((fmt) => (
+          {(['all', 'json', 'csv', 'xlsx'] as const).map((fmt) => (
             <button
               key={fmt}
               onClick={() => setFilterFormat(fmt)}
@@ -408,6 +408,8 @@ export default function FilesPage() {
           <span>{files.filter(f => f.file_format === 'json').length} JSON</span>
           <span>·</span>
           <span>{files.filter(f => f.file_format === 'csv').length} CSV</span>
+          <span>·</span>
+          <span>{files.filter(f => f.file_format === 'xlsx').length} XLSX</span>
           {files.some(f => f.shared_with?.length > 0) && (
             <>
               <span>·</span>

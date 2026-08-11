@@ -11,3 +11,5 @@ cryptography
 drf-spectacular
 openpyxl
 gunicorn
+celery[redis]
+redis

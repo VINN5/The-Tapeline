@@ -31,78 +31,57 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
         """Users see only their own jobs. Admins see all jobs."""
         user = self.request.user
         if user.is_admin():
-            return ExtractionJob.objects.all()
-        return ExtractionJob.objects.filter(owner=user)
+            return ExtractionJob.objects.select_related('owner', 'connection').all()
+        return ExtractionJob.objects.select_related('owner', 'connection').filter(owner=user)
 
     def create(self, request, *args, **kwargs):
         """
-        Creates an extraction job and immediately runs it.
-        Pulls data from the specified connection and table,
-        stores each row as an ExtractedRecord.
+        Creates an extraction job and immediately dispatches it
+        to a Celery worker. Returns instantly with status 'pending'
+        while the extraction runs in the background.
         """
+        from .tasks import run_extraction_task
+
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         # Save the job with pending status
         job = serializer.save(owner=request.user, status='pending')
 
-        try:
-            # Update status to running
-            job.status = 'running'
-            job.save()
+        # Extract optional query builder params
+        filters = request.data.get('filters', None)
+        order_by = request.data.get('order_by', None)
+        order_dir = request.data.get('order_dir', 'asc')
 
-            # Get the connector for this connection
-            connector = get_connector(job.connection)
+        # Dispatch to Celery — returns immediately
+        run_extraction_task.delay(
+            job_id=job.id,
+            filters=filters,
+            order_by=order_by,
+            order_dir=order_dir,
+        )
 
-            # Extract optional query builder params
-            filters = request.data.get('filters', None)
-            order_by = request.data.get('order_by', None)
-            order_dir = request.data.get('order_dir', 'asc')
-
-            # Fetch data from the external database
-            rows = connector.fetch_data(
-                table_name=job.table_name,
-                batch_size=job.batch_size,
-                offset=0,
-                filters=filters,
-                order_by=order_by,
-                order_dir=order_dir,
-            )
-
-            # Save each row as an ExtractedRecord
-            for row in rows:
-                # Convert any non-serializable values to strings
-                clean_row = {k: str(v) if not isinstance(v, (str, int, float, bool, type(None))) else v
-                           for k, v in row.items()}
-                ExtractedRecord.objects.create(job=job, data=clean_row)
-
-            # Mark job as completed
-            job.status = 'completed'
-            job.save()
-
-            return Response(
-                ExtractionJobSerializer(job, context={'request': request}).data,
-                status=status.HTTP_201_CREATED
-            )
-
-        except Exception as e:
-            # If anything goes wrong, mark job as failed
-            job.status = 'failed'
-            job.error_message = str(e)
-            job.save()
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        return Response(
+            ExtractionJobSerializer(job, context={'request': request}).data,
+            status=status.HTTP_201_CREATED
+        )
 
     @action(detail=True, methods=['get'])
     def records(self, request, pk=None):
         """
-        Returns all extracted records for a job.
+        Returns paginated extracted records for a job.
         GET /api/jobs/{id}/records/
+        GET /api/jobs/{id}/records/?page=2
         """
         job = self.get_object()
         records = job.records.all()
+
+        # Apply pagination
+        page = self.paginate_queryset(records)
+        if page is not None:
+            serializer = ExtractedRecordSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
         serializer = ExtractedRecordSerializer(records, many=True)
         return Response(serializer.data)
 
@@ -111,11 +90,11 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
         """
         Submits edited records back to the backend.
         Validates the data, updates the records,
-        and saves them as both a DB record and a file (JSON + CSV).
+        and saves them as both a DB record and a file (JSON, CSV, or XLSX).
         POST /api/jobs/{id}/submit/
         Body: {"records": [{"id": 1, "data": {...}}, ...], "format": "json"}
         """
-        job = self.get_object()
+        job = ExtractionJob.objects.select_related('connection').get(pk=pk)
         records_data = request.data.get('records', [])
         file_format = request.data.get('format', 'json')
 
@@ -183,12 +162,11 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
 
             wb = openpyxl.Workbook()
             ws = wb.active
-            ws.title = job.table_name[:31]  # Excel sheet names max 31 chars
+            ws.title = job.table_name[:31]
 
             if data_to_save:
                 headers = list(data_to_save[0].keys())
 
-                # Style the header row
                 header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
                 header_font = Font(color="FFFFFF", bold=True)
 
@@ -198,12 +176,10 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
                     cell.font = header_font
                     cell.alignment = Alignment(horizontal="center")
 
-                # Write data rows
                 for row_num, row in enumerate(data_to_save, 2):
                     for col_num, header in enumerate(headers, 1):
                         ws.cell(row=row_num, column=col_num, value=row.get(header, ''))
 
-                # Auto-fit column widths
                 for col in ws.columns:
                     max_length = max((len(str(cell.value or '')) for cell in col), default=10)
                     ws.column_dimensions[col[0].column_letter].width = min(max_length + 4, 50)
@@ -217,8 +193,7 @@ class ExtractionJobViewSet(viewsets.ModelViewSet):
                 {'error': 'Invalid format. Use json, csv, or xlsx.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-            
+
         # Save the file to disk and create a StoredFile record
         stored_file = StoredFile.objects.create(
             owner=request.user,
@@ -241,6 +216,7 @@ class StoredFileViewSet(viewsets.ModelViewSet):
     GET    /api/files/{id}/         - get a single file
     DELETE /api/files/{id}/         - delete a file
     POST   /api/files/{id}/share/   - share a file with another user
+    GET    /api/files/{id}/download/ - download the file with authentication
     """
 
     serializer_class = StoredFileSerializer
@@ -254,12 +230,11 @@ class StoredFileViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if user.is_admin():
-            return StoredFile.objects.all()
-        return StoredFile.objects.filter(
-            owner=user
-        ) | StoredFile.objects.filter(
-            shared_with=user
-        )
+            return StoredFile.objects.select_related('owner', 'job').all()
+        return (
+            StoredFile.objects.select_related('owner', 'job').filter(owner=user) |
+            StoredFile.objects.select_related('owner', 'job').filter(shared_with=user)
+        ).distinct()
 
     @action(detail=True, methods=['post'])
     def share(self, request, pk=None):
@@ -271,7 +246,6 @@ class StoredFileViewSet(viewsets.ModelViewSet):
         """
         stored_file = self.get_object()
 
-        # Only the owner can share their file
         if stored_file.owner != request.user and not request.user.is_admin():
             return Response(
                 {'error': 'Only the file owner can share this file.'},
@@ -297,3 +271,34 @@ class StoredFileViewSet(viewsets.ModelViewSet):
                 {'error': f'User {username} not found.'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """
+        Streams a file download with authentication.
+        GET /api/files/{id}/download/
+        """
+        from django.http import HttpResponse
+
+        stored_file = self.get_object()
+
+        try:
+            file_content = stored_file.file.read()
+        except Exception:
+            return Response(
+                {'error': 'File not found on disk.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        content_types = {
+            'json': 'application/json',
+            'csv': 'text/csv',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }
+        content_type = content_types.get(stored_file.file_format, 'application/octet-stream')
+
+        filename = stored_file.file.name.split('/')[-1]
+
+        response = HttpResponse(file_content, content_type=content_type)
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response

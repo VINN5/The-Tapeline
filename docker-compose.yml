@@ -11,6 +11,26 @@ services:
       - .env
     depends_on:
       - db
+      - redis
+
+  celery:
+    build: ./backend
+    container_name: tapeline-celery
+    command: celery -A tapeline worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    depends_on:
+      - db
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: tapeline-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
 
   frontend:
     build: ./frontend

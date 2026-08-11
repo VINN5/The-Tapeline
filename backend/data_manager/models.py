@@ -17,38 +17,42 @@ class ExtractionJob(models.Model):
         ('failed', 'Failed'),
     ]
 
-    # Who triggered this extraction
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='extraction_jobs'
+        related_name='extraction_jobs',
+        db_index=True          # faster filtering by owner
     )
 
-    # Which database connection to pull data from
     connection = models.ForeignKey(
         DatabaseConnection,
         on_delete=models.CASCADE,
-        related_name='extraction_jobs'
+        related_name='extraction_jobs',
+        db_index=True          # faster filtering by connection
     )
 
-    # The table or collection to extract data from
     table_name = models.CharField(max_length=255)
 
-    # How many rows to pull per batch (configurable by user)
     batch_size = models.IntegerField(default=100)
 
-    # Current status of this job
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='pending'
+        default='pending',
+        db_index=True          # faster filtering by status
     )
 
-    # If the job fails, store the error message here
     error_message = models.TextField(blank=True, null=True)
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)  # faster ordering
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']          # newest jobs first by default
+        indexes = [
+            models.Index(fields=['owner', 'status']),      # common combined filter
+            models.Index(fields=['owner', 'created_at']),  # common combined sort
+        ]
 
     def __str__(self):
         return f"Job {self.id} - {self.table_name} ({self.status})"
@@ -61,22 +65,25 @@ class ExtractedRecord(models.Model):
     regardless of which database it came from.
     """
 
-    # Which job this record belongs to
     job = models.ForeignKey(
         ExtractionJob,
         on_delete=models.CASCADE,
-        related_name='records'
+        related_name='records',
+        db_index=True          # faster lookup of records by job
     )
 
-    # The actual data row stored as JSON
-    # e.g. {"id": 1, "name": "John", "email": "john@example.com"}
     data = models.JSONField()
 
-    # Whether this record has been edited by the user
-    is_edited = models.BooleanField(default=False)
+    is_edited = models.BooleanField(default=False, db_index=True)  # faster filtering edited records
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['id']      # consistent record ordering
+        indexes = [
+            models.Index(fields=['job', 'is_edited']),  # common combined filter
+        ]
 
     def __str__(self):
         return f"Record {self.id} from Job {self.job.id}"
@@ -84,7 +91,7 @@ class ExtractedRecord(models.Model):
 
 class StoredFile(models.Model):
     """
-    Tracks files (JSON or CSV) that were generated when
+    Tracks files (JSON, CSV, or XLSX) that were generated when
     a user submits edited data back to the backend.
     Each file stores the processed data along with metadata.
     """
@@ -92,44 +99,46 @@ class StoredFile(models.Model):
     FILE_FORMAT_CHOICES = [
         ('json', 'JSON'),
         ('csv', 'CSV'),
+        ('xlsx', 'Excel'),     # added xlsx support
     ]
 
-    # Who owns this file
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name='stored_files'
+        related_name='stored_files',
+        db_index=True          # faster filtering by owner
     )
 
-    # Which job generated this file
     job = models.ForeignKey(
         ExtractionJob,
         on_delete=models.CASCADE,
-        related_name='stored_files'
+        related_name='stored_files',
+        db_index=True          # faster lookup of files by job
     )
 
-    # The file format (JSON or CSV)
     file_format = models.CharField(
         max_length=10,
         choices=FILE_FORMAT_CHOICES,
         default='json'
     )
 
-    # The actual file stored on disk
     file = models.FileField(upload_to='exports/%Y/%m/%d/')
 
-    # Source metadata - which DB and table this data came from
     source_metadata = models.JSONField(default=dict)
 
-    # Timestamp of when this file was created
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
-    # Access control - which users can see this file
     shared_with = models.ManyToManyField(
         User,
         related_name='shared_files',
         blank=True
     )
+
+    class Meta:
+        ordering = ['-created_at']     # newest files first
+        indexes = [
+            models.Index(fields=['owner', 'created_at']),  # common combined filter
+        ]
 
     def __str__(self):
         return f"{self.file_format.upper()} file by {self.owner.username} at {self.created_at}"
